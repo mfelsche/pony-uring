@@ -1,0 +1,6 @@
+/example/example
+/example/lock.json
+/liburing.a
+/liburing_pony.a
+/liburing-liburing-2.1/
+/liburing-pony/*.ol

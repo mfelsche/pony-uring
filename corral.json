@@ -1,0 +1,17 @@
+{
+  "packages": [],
+  "deps": [],
+  "info": {
+    "description": "Pony io_uring interface",
+    "homepage": "",
+    "license": "Apache-2",
+    "documentation_url": "",
+    "version": "0.1",
+    "name": "uring"
+  },
+  "scripts": {
+    "posix": {
+      "post_fetch_or_update": "make liburing"
+    }
+  }
+}

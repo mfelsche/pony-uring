@@ -1,0 +1,17 @@
+{
+  "packages": [],
+  "deps": [
+    {
+      "locator": "../../uring",
+      "version": "0.1"
+    }
+  ],
+  "info": {
+    "description": "uring example",
+    "homepage": "",
+    "license": "Apache-2",
+    "documentation_url": "",
+    "version": "0.1",
+    "name": "uring example"
+  }
+}
