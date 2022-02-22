@@ -1,8 +1,12 @@
 use uring = "uring"
 use "format"
 use "files"
+use "debug"
 
-actor Main
+actor Main is uring.URingNotify
+
+  var _ring: (uring.URing | None) = None
+
   new create(env: Env) =>
     ifdef linux then
       try
@@ -22,7 +26,7 @@ actor Main
           env.out.print(consume header)
           env.out.print(Format("=" where width = 39, fill = '='))
 
-          for op in uring.Ops().values() do
+          for op in uring.OpKinds().values() do
             let s = Format(op.string() where width = 30, align = AlignLeft)
             if probe.op_supported(op) then
               s.append("\u2705")
@@ -34,10 +38,34 @@ actor Main
         else
           env.err.print("probe setup failed")
         end
-        ring.dispose()
+        let nop = uring.OpNop.create()
+        let that: uring.URingNotify tag = this
+        ring.submit(consume nop, that)
+        _ring = ring
       else
         env.err.print("io_uring setup failed.")
       end
     else
       env.err.print("Not a linux system")
     end
+
+  be op_completed(op: uring.URingOp, res: I32) =>
+    match op
+    | let nop: uring.OpNop =>
+      Debug("Nop completed with " + res.string())
+      match _ring
+      | let ring: uring.URing =>
+        ring.dispose()
+      end
+    end
+
+  be failed(op: uring.URingOp) =>
+    match op
+    | let nop: uring.OpNop =>
+      Debug("Nop failed.")
+      match _ring
+      | let ring: uring.URing =>
+        ring.dispose()
+      end
+    end
+

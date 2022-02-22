@@ -21,7 +21,7 @@ class UringProbe
       compile_error "uring only supported on linux"
     end
 
-  fun op_supported(op: Op): Bool =>
+  fun op_supported(op: OpKind): Bool =>
     ifdef linux then
       @pony_uring_opcode_supported(_probe, op.value()) != 0
     else
