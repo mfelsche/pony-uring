@@ -2,7 +2,7 @@
   "packages": [],
   "deps": [
     {
-      "locator": "../../uring",
+      "locator": "..",
       "version": "0.1"
     }
   ],
