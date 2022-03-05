@@ -13,7 +13,7 @@ actor Main is uring.URingNotify
         let ring = uring.InitURing(128)?
         try
           let probe = uring.UringProbe.create()?
-          let f = FilePath(env.root, "/proc/sys/kernel/osrelease")
+          let f = FilePath(FileAuth(env.root), "/proc/sys/kernel/osrelease")
           match OpenFile(f)
           | let file: File =>
             let kernel_release = file.lines().next()?
@@ -38,10 +38,25 @@ actor Main is uring.URingNotify
         else
           env.err.print("probe setup failed")
         end
-        let nop = uring.OpNop.create()
-        let that: uring.URingNotify tag = this
-        ring.submit(consume nop, that)
-        _ring = ring
+        // FIXME: provide a richer CLI definition for a `cat` subcommand
+        if env.args.size() > 1 then
+          let file_path: String = env.args(env.args.size() - 1)?
+          let config = uring.FileReaderConfig.create(
+            FilePath.create(FileAuth(env.root), file_path, FileCaps .> set(FileRead))
+            where chunk_size' = 100,
+                  nr_chunks'  = 2
+          )
+          let reader = uring.FileReader.create(
+            config,
+            ring,
+            FilePrintNotify.create(env.out, ring)
+          )
+        else
+          let nop = uring.OpNop.create()
+          let that: uring.URingNotify tag = this
+          _ring = ring
+          ring.submit(consume nop, that)
+        end
       else
         env.err.print("io_uring setup failed.")
       end
@@ -68,4 +83,27 @@ actor Main is uring.URingNotify
         ring.dispose()
       end
     end
+
+class iso FilePrintNotify is uring.FileReaderNotify
+  let _out: OutStream
+  let _ring: uring.URing
+
+  new iso create(out: OutStream, ring: uring.URing) =>
+    _out = out
+    _ring = ring
+
+  fun ref on_data(reader: uring.FileReader ref, data: Array[U8] iso, offset: U64): uring.ControlFlow =>
+    let s = recover val String.from_iso_array(consume data) end
+    _out.write(s)
+    uring.Continue
+
+  fun ref on_eof(reader: uring.FileReader ref) =>
+    _out.print("")
+
+  fun ref on_err(reader: uring.FileReader ref, errno: I32) =>
+    _out.print("ERROR: " + errno.string())
+    _ring.dispose()
+
+  fun ref on_close(reader: uring.FileReader ref) =>
+    _ring.dispose()
 

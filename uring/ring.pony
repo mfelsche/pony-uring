@@ -131,7 +131,7 @@ actor URing is AsioEventNotify
   ```
   """
   let _asio_event: AsioEventID
-  let _ring: NullablePointer[_Ring] val
+  var _ring: NullablePointer[_Ring] val = recover NullablePointer[_Ring].none() end
   let _event_fd: EventFd iso
   let _pending_ops: MapIs[U64, (URingOp iso, URingNotify tag)] = _pending_ops.create()
     """
@@ -144,6 +144,7 @@ actor URing is AsioEventNotify
     Keeping track of the number of ops
     in order to assign a unique token to each
     """
+  let _uses_sqpoll: Bool
 
 
   new _create(ring: NullablePointer[_Ring] val, event_fd: EventFd iso) =>
@@ -158,25 +159,29 @@ actor URing is AsioEventNotify
       @io_uring_register_eventfd(_ring, _event_fd.file_descriptor())
     end
     _asio_event = @pony_asio_event_create(this, _event_fd.file_descriptor().u32(), AsioEvent.read(), 0, true)
+    let flags = try _ring.apply()?.flags else 0 end
+    _uses_sqpoll = (flags and SetupSqPoll.value()) != 0
 
   be _event_notify(event: AsioEventID, flags: U32, arg: U32) =>
     if AsioEvent.readable(flags) then
       ifdef linux then
-        var cqe_ptr = @pony_uring_peek_cqe(_ring)
-        while not cqe_ptr.is_none() do
-          try
-            let cqe: CQE = cqe_ptr()?
-            let res = cqe.res
-            let op_token = cqe.user_data
-            @pony_uring_cqe_seen(_ring, NullablePointer[CQE](cqe))
+        if not _ring.is_none() then
+          var cqe_ptr = @pony_uring_peek_cqe(_ring)
+          while not cqe_ptr.is_none() do
             try
-              (_, (let op, let notify)) = _pending_ops.remove(op_token)?
-              notify.op_completed(consume op, res)
-            else
-              Debug("No pending op available for token " + op_token.string())
+              let cqe: CQE = cqe_ptr()?
+              let res = cqe.res
+              let op_token = cqe.user_data
+              @pony_uring_cqe_seen(_ring, NullablePointer[CQE](cqe))
+              try
+                (_, (let op, let notify)) = _pending_ops.remove(op_token)?
+                notify.op_completed(consume op, res)
+              else
+                Debug("No pending op available for token " + op_token.string())
+              end
             end
+            cqe_ptr = @pony_uring_peek_cqe(_ring)
           end
-          cqe_ptr = @pony_uring_peek_cqe(_ring)
         end
       else
         compile_error "uring only supported on linux"
@@ -187,37 +192,63 @@ actor URing is AsioEventNotify
 
   fun ref get_sqe(): SQEBuilder ref ? =>
     ifdef linux then
-      let sqe = @io_uring_get_sqe(_ring)
-      if sqe.is_null() then
-        error
+      if not _ring.is_none() then
+        let sqe = @io_uring_get_sqe(_ring)
+        if sqe.is_null() then
+          error
+        else
+          SQEBuilder._create(sqe)
+        end
       else
-        SQEBuilder._create(sqe)
+        error
       end
     else
       compile_error "uring only supported on linux"
     end
 
   be submit(op: URingOp iso, notify: URingNotify tag) =>
-    match consume op
-    | let nop: OpNop =>
-      // TODO: what to do when there is no sqe?
-      // enqueue the operation into a buffer
-      let sqe = try get_sqe()? end
-      match sqe
-      | let sqee: SQEBuilder ref =>
-
-        let op_token: U64 = _op_count = _op_count + 1
-        _pending_ops.insert(op_token, (consume nop, notify))
-        sqee.>set_data(op_token).>nop()
-      else
-        notify.failed(consume nop)
-        return // make sure we dont submit as there is no need to
+    """
+    Submit an operation to io_uring, passing a notify object/actor.
+    """
+    // TODO: what to do when there is no sqe?
+    // enqueue the operation into a buffer
+    let sqe = try get_sqe()? end
+    let op_token: U64 = _op_count = _op_count + 1
+    match sqe
+    | let builder: SQEBuilder ref =>
+      match consume op
+      | let nop: OpNop =>
+        let op' = builder.nop(consume nop)
+        // prep functions overwrite the user_data
+        builder.set_data(op_token)
+        _pending_ops.insert(op_token, (consume op', notify))
+      | let readv: OpReadv =>
+        let op' = builder.readv(consume readv)
+        // prep functions overwrite the user_data, so we have to set it
+        // afterwards
+        builder.set_data(op_token)
+        _pending_ops.insert(op_token, (consume op', notify))
+      | let op_close: OpClose =>
+        let op' = builder.close(consume op_close)
+        // prep functions overwrite the user_data, so we have to set it
+        // afterwards
+        builder.set_data(op_token)
+        _pending_ops.insert(op_token, (consume op', notify))
       end
+
+    else
+      notify.failed(consume op)
+      return // make sure we dont submit as there is no need to
     end
-    // TODO: only submit if we aren't in SQPoll Mode
-    _submit()
+    // only submit if we aren't in SQPoll Mode
+    if not _uses_sqpoll then
+      _submit()
+    end
 
   fun _submit(): USize =>
+    """
+    Actually submit the filled SQE entries to the kernel for handling them.
+    """
     ifdef linux then
       @io_uring_submit(_ring).usize()
     else
@@ -229,17 +260,20 @@ actor URing is AsioEventNotify
 
   fun ref close() =>
     ifdef linux then
-      @pony_asio_event_unsubscribe(_asio_event)
-      @pony_asio_event_set_readable(_asio_event, false)
-      @io_uring_unregister_eventfd(_ring)
-      _event_fd.close()
-      @io_uring_queue_exit(_ring)
+      if not _ring.is_none() then
+        @pony_asio_event_unsubscribe(_asio_event)
+        @pony_asio_event_set_readable(_asio_event, false)
+        @io_uring_unregister_eventfd(_ring)
+        _event_fd.close()
+        @io_uring_queue_exit(_ring)
+        _ring = recover val NullablePointer[_Ring].none() end
+      end
     else
       compile_error "uring only supported on linux"
     end
 
 interface URingNotify
-  be op_completed(op: URingOp, result: I32)
+  be op_completed(op: URingOp iso, result: I32)
   be failed(op: URingOp)
     """E.g. when we couldn't get an SQE for this OP"""
 

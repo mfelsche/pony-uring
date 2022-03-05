@@ -6,8 +6,7 @@
 
 int pony_uring_opcode_supported(const struct io_uring_probe *p, int op)
 {
-  return io_uring_opcode_supported(p, op);
-}
+  return io_uring_opcode_supported(p, op); }
 
 
 // cqe stuff
@@ -50,7 +49,49 @@ void pony_uring_sqe_set_data(struct io_uring_sqe *sqe, uint64_t data)
   io_uring_sqe_set_data(sqe, (void*)data);
 }
 
+void pony_uring_sqe_set_flags(struct io_uring_sqe *sqe, uint8_t flags)
+{
+  sqe->flags |= flags;
+}
+
 void pony_uring_prep_nop(struct io_uring_sqe *sqe)
 {
   io_uring_prep_nop(sqe);
+}
+
+void pony_uring_prep_read(struct io_uring_sqe *sqe,
+                            int fd,
+                            void* buf,
+                            unsigned nbytes,
+                            uint64_t offset)
+{
+  io_uring_prep_read(sqe, fd, buf, nbytes, offset);
+}
+
+void pony_uring_prep_readv(struct io_uring_sqe *sqe,
+                            int fd,
+                            const struct iovec *iovecs,
+                            unsigned nr_vecs,
+                            uint64_t offset)
+{
+  io_uring_prep_readv(sqe, fd, iovecs, nr_vecs, offset);
+}
+
+void pony_uring_prep_writev(struct io_uring_sqe *sqe,
+                            int fd,
+                            const struct iovec *iovecs,
+                            unsigned nr_vecs,
+                            uint64_t offset)
+{
+  io_uring_prep_writev(sqe, fd, iovecs, nr_vecs, offset);
+}
+
+void pony_uring_prep_fsync(struct io_uring_sqe *sqe, int fd, unsigned fsync_flags)
+{
+  io_uring_prep_fsync(sqe, fd, fsync_flags);
+}
+
+void pony_uring_prep_close(struct io_uring_sqe *sqe, int fd)
+{
+  io_uring_prep_close(sqe, fd);
 }

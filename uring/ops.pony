@@ -1,7 +1,110 @@
-type URingOp is (OpNop)
+type URingOp is ((OpNop | OpReadv | OpClose | OpFsync) & HasOpKind iso)
+
+interface HasOpKind
+  fun kind(): OpKind
 
 class iso OpNop
   new iso create() => None
+  fun kind(): OpKind => OpKindNop
+
+class iso OpRead
+  var _buf: Array[U8] iso
+  var _ptr: Pointer[U8] tag
+  var _nbytes: U32
+  let _fd: I32
+  let _offset: U64
+
+  new iso create(buf': Array[U8] iso, fd': I32, offset': U64) =>
+    _ptr = buf'.cpointer()
+    _nbytes = buf'.size().u32()
+    _buf = consume buf'
+    _fd = fd'
+    _offset = offset'
+
+  fun kind(): OpKind => OpKindRead
+  fun fd(): I32 => _fd
+  fun offset(): U64 => _offset
+  fun buf(): Pointer[U8] tag => _ptr
+  fun nbytes(): U32 => _nbytes
+
+class iso OpReadv
+  """
+  readv Operation
+
+  TODO: Find a better way for reusing this class for multiple readv calls.
+  """
+  var _buf: Array[Array[U8] iso] iso
+    """
+    The actual buffers to be filled
+    """
+  var _ptr: Array[(Pointer[U8] tag, USize)] val
+    """
+    iovec array derived from the above buffers for passing across the FFI boundary
+    """
+
+  let _fd: I32
+  var _offset: U64
+
+  new iso create(buf_sizes: Array[USize] val, fd': I32, offset': U64 = 0) =>
+    """
+    Create a new readv operation with a descriptor of the iovec sizes.
+    The iovec buffers will be freshly allocated.
+    """
+    let ptr = recover trn Array[(Pointer[U8] tag, USize)].create(buf_sizes.size()) end
+    let buf = recover iso Array[Array[U8] iso].create(buf_sizes.size()) end
+    for buf_size in buf_sizes.values() do
+      let arr = recover iso Array[U8] .> undefined(buf_size) end
+      ptr.push(
+        (arr.cpointer(), arr.size())
+      )
+      buf.push(consume arr)
+    end
+    _ptr = consume ptr
+    _buf = consume buf
+    _fd = fd'
+    _offset = offset'
+
+  fun kind(): OpKind => OpKindReadv
+  fun iovec(): Pointer[(Pointer[U8] tag, USize)] tag => _ptr.cpointer()
+  fun numvecs(): U32 => _ptr.size().u32()
+  fun fd(): I32 => _fd
+  fun offset(): U64 => _offset
+  fun ref set_offset(new_offset: U64) => _offset = new_offset
+  fun ref advance_offset(delta: U64) => _offset = _offset + delta
+
+
+  fun iso extract_buf(): Array[Array[U8] iso] iso^ =>
+    """
+    Consumes this instance and extracts the internal buffer.
+
+    Take care to get the offset and fd beforehand otherwise they are gone
+    when this function returns.
+    """
+    // reset internal buffers to empty
+    let buf = _buf = recover Array[Array[U8] iso].create(0) end
+    _ptr = recover val Array[(Pointer[U8] tag, USize)].create(0) end
+    consume buf
+
+class iso OpClose
+  let _fd: I32
+
+  new iso create(fd': I32) =>
+    _fd = fd'
+  fun kind(): OpKind => OpKindClose
+  fun fd(): I32 => _fd
+
+
+class iso OpFsync
+  let _fd: I32
+  let _fdatasync: Bool
+
+  new iso create(fd': I32, fdatasync': Bool = false) =>
+    _fd = fd'
+    _fdatasync = fdatasync'
+  fun kind(): OpKind => OpKindFsync
+  fun fd(): I32 => _fd
+  fun fdatasync(): Bool => _fdatasync
+
 
 type OpKind is (OpKindNop | OpKindReadv | OpKindWritev | OpKindFsync | OpKindReadFixed | OpKindWriteFixed | OpKindPollAdd | OpKindPollRemove | OpKindSyncFileRange | OpKindSendmsg |  OpKindRecvmsg | OpKindTimeout | OpKindTimeoutRemove | OpKindAccept | OpKindAsyncCancel | OpKindLinkTimeout | OpKindConnect | OpKindFallocate | OpKindOpenat | OpKindClose | OpKindFilesUpdate | OpKindStatx | OpKindRead | OpKindWrite | OpKindFadvise | OpKindMadvise | OpKindSend | OpKindRecv | OpKindOpenat2 | OpKindEpollctl | OpKindSplice | OpKindProvideBuffers | OpKindRemoveBuffers | OpKindTee | OpKindShutdown | OpKindRenameat | OpKindUnlinkat | OpKindMkdirat | OpKindSymlinkat | OpKindLinkat)
 
