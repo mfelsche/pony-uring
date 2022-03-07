@@ -7,15 +7,22 @@ use @open[I32](path: Pointer[U8] tag, flags: I32, mode: U32) if not windows
 use @pony_os_errno[I32]()
 
 primitive Abort
-primitive Continue
+class val Continue
+  let _offset: (None | U64)
+
+  new val create(offset': (None | U64) = None) =>
+    _offset = offset'
+
+  fun offset(): (None | U64) =>
+    _offset
 
 type ControlFlow is (Abort | Continue)
 
 interface iso FileReaderNotify
-  fun ref on_data(reader: FileReader ref, data: Array[U8] iso, offset: U64): ControlFlow
-  fun ref on_eof(reader: FileReader ref)
-  fun ref on_close(reader: FileReader ref)
-  fun ref on_err(reader: FileReader ref, errno: I32)
+  fun ref on_data(data: Array[U8] iso, offset: U64): ControlFlow
+  fun ref on_eof()
+  fun ref on_close()
+  fun ref on_err(errno: I32)
 
 class val FileReaderConfig
   """
@@ -72,7 +79,7 @@ actor FileReader is URingNotify
       let flags: I32 = @ponyint_o_rdonly()
       _fd = @open(_config.path.path.cstring(), flags, mode)
       if _fd == -1 then
-        _notify.on_err(this, @pony_os_errno())
+        _notify.on_err(@pony_os_errno())
       else
         _initiate_read()
       end
@@ -101,21 +108,15 @@ actor FileReader is URingNotify
     let that: URingNotify tag = this
     _uring.submit(consume op, that)
 
-  fun ref set_offset(new_offset: U64) =>
-    """
-    A poor-mans seek operation
-    """
-    _offset = new_offset
-
   be op_completed(op: URingOp iso, result: I32) =>
     // TODO: close the file automatically here
     match consume op
     | let close': OpClose iso =>
       _fd = -1
       if result == 0 then
-        _notify.on_close(this)
+        _notify.on_close()
       else
-        _notify.on_err(this, @pony_os_errno())
+        _notify.on_err(@pony_os_errno())
       end
     | let readv: OpReadv iso =>
       if result > 0 then
@@ -132,39 +133,52 @@ actor FileReader is URingNotify
             if bytes_left < buf_size then
               // we have a short read
               buf.truncate(bytes_left)
-              _notify.on_data(this, consume buf, current_offset)
-              _notify.on_eof(this)
-              flow = Abort
-              break
+              match _notify.on_data(consume buf, current_offset)
+              | let c: Continue =>
+                let continue_offset = c.offset()
+                match continue_offset
+                | let c_offset: U64 =>
+                  flow = Continue
+                  _offset = c_offset
+                else
+                  flow = Abort
+                  _notify.on_eof()
+                  break
+                end
+              | Abort =>
+                flow = Abort
+                _notify.on_eof()
+                break
+              end
             else
-              match _notify.on_data(this, consume buf, current_offset)
+              match _notify.on_data(consume buf, current_offset)
               | Abort =>
                 flow = Abort
                 break
-              | Continue =>
+              | let c: Continue =>
                 flow = Continue
-                _offset = offset
+                _offset = Iter[U64].maybe(c.offset()).next_or(offset)
                 bytes_left = bytes_left - buf_size
               end
             end
           end
         end
         match flow
-        | Continue =>
+        | let c: Continue =>
           _initiate_read()
         | Abort =>
           _initiate_close()
         end
       elseif result == 0 then
-        _notify.on_eof(this)
+        _notify.on_eof()
         _initiate_close()
       else
-        _notify.on_err(this, result)
+        _notify.on_err(result)
         _initiate_close()
       end
     end
 
   be failed(op: URingOp) =>
-    _notify.on_err(this, @pony_os_errno())
+    _notify.on_err(@pony_os_errno())
     _initiate_close()
 

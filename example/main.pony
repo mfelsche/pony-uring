@@ -92,18 +92,18 @@ class iso FilePrintNotify is uring.FileReaderNotify
     _out = out
     _ring = ring
 
-  fun ref on_data(reader: uring.FileReader ref, data: Array[U8] iso, offset: U64): uring.ControlFlow =>
+  fun ref on_data(data: Array[U8] iso, offset: U64): uring.ControlFlow =>
     let s = recover val String.from_iso_array(consume data) end
     _out.write(s)
     uring.Continue
 
-  fun ref on_eof(reader: uring.FileReader ref) =>
+  fun ref on_eof() =>
     _out.print("")
 
-  fun ref on_err(reader: uring.FileReader ref, errno: I32) =>
+  fun ref on_err(errno: I32) =>
     _out.print("ERROR: " + errno.string())
     _ring.dispose()
 
-  fun ref on_close(reader: uring.FileReader ref) =>
+  fun ref on_close() =>
     _ring.dispose()
 
