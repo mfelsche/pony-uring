@@ -3,10 +3,10 @@
 #include <stdint.h>
 
 // probe stuff
-
 int pony_uring_opcode_supported(const struct io_uring_probe *p, int op)
 {
-  return io_uring_opcode_supported(p, op); }
+  return io_uring_opcode_supported(p, op);
+}
 
 
 // cqe stuff
@@ -89,6 +89,11 @@ void pony_uring_prep_writev(struct io_uring_sqe *sqe,
 void pony_uring_prep_fsync(struct io_uring_sqe *sqe, int fd, unsigned fsync_flags)
 {
   io_uring_prep_fsync(sqe, fd, fsync_flags);
+}
+
+void pony_uring_prep_openat(struct io_uring_sqe *sqe, int fd, const char *path, int flags, mode_t mode)
+{
+  io_uring_prep_openat(sqe, fd, path, flags, mode);
 }
 
 void pony_uring_prep_close(struct io_uring_sqe *sqe, int fd)

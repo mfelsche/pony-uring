@@ -206,10 +206,48 @@ actor URing is AsioEventNotify
       compile_error "uring only supported on linux"
     end
 
-  be submit(op: URingOp iso, notify: URingNotify tag) =>
+  be submit_op(
+    op: URingOp iso,
+    notify: URingNotify tag,
+    submit_to_uring: Bool = true)
+  =>
     """
     Submit an operation to io_uring, passing a notify object/actor.
     """
+    _submit_op(consume op, notify)
+
+    // only submit if we aren't in SQPoll Mode
+    if (not _uses_sqpoll) and submit_to_uring then
+      _submit()
+    end
+
+  be submit_ops(
+    ops: Array[URingOp iso] iso,
+    notify: URingNotify tag,
+    submit_to_uring: Bool = true)
+  =>
+    """
+    Submit a batch of operations
+    and only submit them to the kernel when all are processed, not one by one.
+
+    The passed in notify will be called for each single op.
+    """
+    try
+      while ops.size() > 0 do
+        let op = ops.shift()?
+        _submit_op(consume op, notify)
+      end
+
+      // only submit if we aren't in SQPoll Mode
+      if (not _uses_sqpoll) and submit_to_uring then
+        _submit()
+      end
+    end
+
+  fun ref _submit_op(
+    op: URingOp iso,
+    notify: URingNotify tag)
+  =>
     // TODO: what to do when there is no sqe?
     // enqueue the operation into a buffer
     let sqe = try get_sqe()? end
@@ -228,6 +266,10 @@ actor URing is AsioEventNotify
         // afterwards
         builder.set_data(op_token)
         _pending_ops.insert(op_token, (consume op', notify))
+      | let op_openat: OpOpenat =>
+        let op' = builder.openat(consume op_openat)
+        builder.set_data(op_token)
+        _pending_ops.insert(op_token, (consume op', notify))
       | let op_close: OpClose =>
         let op' = builder.close(consume op_close)
         // prep functions overwrite the user_data, so we have to set it
@@ -237,13 +279,19 @@ actor URing is AsioEventNotify
       end
 
     else
+      // no sqe available
       notify.failed(consume op)
       return // make sure we dont submit as there is no need to
     end
-    // only submit if we aren't in SQPoll Mode
-    if not _uses_sqpoll then
-      _submit()
-    end
+
+
+  be submit_pending() =>
+    """
+    Explicitly submit all provided and pending operations to the kernel.
+
+    This will also call submit if the SQPOLL feature is used.
+    """
+    _submit()
 
   fun _submit(): USize =>
     """

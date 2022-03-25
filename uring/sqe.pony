@@ -3,8 +3,10 @@ use @pony_uring_sqe_set_flags[None](sqe: Pointer[_SQE] ref, flags: U8) if linux
 use @pony_uring_prep_nop[None](sqe: Pointer[_SQE] ref) if linux
 use @pony_uring_prep_read[None](sqe: Pointer[_SQE] ref, fd: I32, buf: Pointer[U8] tag, nbytes: U32, offset: U64) if linux
 use @pony_uring_prep_readv[None](sqe: Pointer[_SQE] ref, fd: I32, iovec: Pointer[(Pointer[U8] tag, USize)] tag, nr_vec: U32, offset: U64) if linux
+use @pony_uring_prep_openat[None](sqe: Pointer[_SQE] ref, fd: I32, path: Pointer[U8] tag, flags: I32, mode: U32)
 use @pony_uring_prep_close[None](sqe: Pointer[_SQE] ref, fd: I32)
 use @pony_uring_prep_fsync[None](sqe: Pointer[_SQE] ref, fd: I32, flags: U32)
+
 
 use "collections"
 
@@ -64,7 +66,9 @@ primitive SQELink
 
   Taken from: https://unixism.net/loti/ref-liburing/low_level.html
   """
-  fun value(): U8 => 1 << 2 primitive SQEHardLink
+  fun value(): U8 => 1 << 2
+
+primitive SQEHardLink
   """
   ### IOSQE_IO_HARDLINK
 
@@ -209,6 +213,15 @@ class ref SQEBuilder
     ifdef linux then
       let flags: U32 = if op.fdatasync() then 1 else 0 end
       @pony_uring_prep_fsync(_inner, op.fd(), flags)
+      @pony_uring_sqe_set_flags(_inner, _flags.value())
+      consume op
+    else
+      compile_error "uring only supported on linux"
+    end
+
+  fun ref openat(op: OpOpenat iso): OpOpenat iso^ =>
+    ifdef linux then
+      @pony_uring_prep_openat(_inner, op.dir_fd(), op.path().path.cstring(), op.flags(), op.mode())
       @pony_uring_sqe_set_flags(_inner, _flags.value())
       consume op
     else

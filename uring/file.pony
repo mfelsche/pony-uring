@@ -2,8 +2,6 @@ use "files"
 use "debug"
 use "itertools"
 
-use @ponyint_o_rdonly[I32]()
-use @open[I32](path: Pointer[U8] tag, flags: I32, mode: U32) if not windows
 use @pony_os_errno[I32]()
 
 primitive Abort
@@ -74,14 +72,15 @@ actor FileReader is URingNotify
       _offset = _config.offset
       _uring = uring
       _notify = consume notify
+      _fd = -1 // dummy value
 
       let mode = FileMode.u32()
-      let flags: I32 = @ponyint_o_rdonly()
-      _fd = @open(_config.path.path.cstring(), flags, mode)
-      if _fd == -1 then
-        _notify.on_err(@pony_os_errno())
+      try
+        let op = OpOpenat.read_only(_config.path)?
+        let that: URingNotify tag = this
+        _uring.submit_op(consume op, that)
       else
-        _initiate_read()
+        _notify.on_err(-1)
       end
     else
       // TODO: fall back to normal files for all other systems than linux
@@ -101,16 +100,22 @@ actor FileReader is URingNotify
 
     let op = OpReadv.create(sizes, _fd, _offset)
     let that: URingNotify tag = this
-    _uring.submit(consume op, that)
+    _uring.submit_op(consume op, that)
 
   fun ref _initiate_close() =>
     let op = OpClose.create(_fd)
     let that: URingNotify tag = this
-    _uring.submit(consume op, that)
+    _uring.submit_op(consume op, that)
 
   be op_completed(op: URingOp iso, result: I32) =>
-    // TODO: close the file automatically here
     match consume op
+    | let openat': OpOpenat iso =>
+      _fd = result
+      if result == -1 then
+        _notify.on_err(@pony_os_errno())
+      else
+        _initiate_read()
+      end
     | let close': OpClose iso =>
       _fd = -1
       if result == 0 then
@@ -120,6 +125,7 @@ actor FileReader is URingNotify
       end
     | let readv: OpReadv iso =>
       if result > 0 then
+        // TODO: simplify control flow here
         var bytes_left: USize = result.usize()
         var offset = readv.offset()
         var flow: ControlFlow = Continue
@@ -135,10 +141,12 @@ actor FileReader is URingNotify
               buf.truncate(bytes_left)
               match _notify.on_data(consume buf, current_offset)
               | let c: Continue =>
-                let continue_offset = c.offset()
-                match continue_offset
+                match c.offset()
                 | let c_offset: U64 =>
-                  flow = Continue
+                  // if we have a custom offset seek after a short read
+                  // we actually continue reading
+                  // otherwise we abort and signal EOF.
+                  flow = c
                   _offset = c_offset
                 else
                   flow = Abort

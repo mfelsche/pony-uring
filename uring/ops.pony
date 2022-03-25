@@ -1,4 +1,11 @@
-type URingOp is ((OpNop | OpReadv | OpClose | OpFsync) & HasOpKind iso)
+use "files"
+use @ponyint_o_rdwr[I32]()
+use @ponyint_o_creat[I32]()
+use @ponyint_o_trunc[I32]()
+use @ponyint_o_rdonly[I32]()
+
+// TODO: make SQEFlags part of every op
+type URingOp is ((OpNop | OpReadv | OpOpenat | OpClose | OpFsync) & HasOpKind iso)
 
 interface HasOpKind
   fun kind(): OpKind
@@ -84,6 +91,79 @@ class iso OpReadv
     let buf = _buf = recover Array[Array[U8] iso].create(0) end
     _ptr = recover val Array[(Pointer[U8] tag, USize)].create(0) end
     consume buf
+
+
+primitive _AtFdcwd
+  """
+  AT_FDCWD - see definition in fcntl.h
+  """
+  fun apply(): I32 =>
+    -100
+
+class iso OpOpenat
+  """
+  Uses openat to open relative paths in the current working directory.
+  Absolute paths are opened as one would expect.
+  """
+  let _dir_fd: I32
+  let _path: FilePath
+  let _flags: I32
+  let _mode: U32
+
+  new iso create(
+    path': FilePath,
+    dir_fd': I32 = _AtFdcwd(),
+    flags': I32 = @ponyint_o_rdwr() or @ponyint_o_creat() or @ponyint_o_trunc(),
+    mode': U32 = 0) ?
+  =>
+    """
+    Open file for RW, create it if it does not exist, truncate it if it does.
+    Manipulate the `flags'` and `mode'` arguments to get a different open behaviour.
+    """
+    _dir_fd = dir_fd'
+    _path = path'
+    _flags = flags'
+    _mode = mode'
+    verify_caps()?
+
+  new iso read_only(
+    path': FilePath,
+    dir_fd': I32 = _AtFdcwd(),
+    flags': I32 = @ponyint_o_rdonly()) ?
+  =>
+    """
+    Open file for read only.
+    """
+    _dir_fd = dir_fd'
+    _path = path'
+    _flags = flags'
+    _mode = 0
+    verify_caps()?
+
+  fun verify_caps() ? =>
+    if ((_flags and @ponyint_o_creat()) != 0) and not _path.caps(FileCreate) then
+      error
+    end
+
+    if ((_flags and @ponyint_o_trunc()) != 0) and not _path.caps(FileTruncate) then
+      error
+    end
+
+    if ((_flags and @ponyint_o_rdwr()) != 0) and not _path.caps(FileWrite) then
+      error
+    end
+
+    if ((_flags and @ponyint_o_rdonly()) != 0) and not _path.caps(FileRead) then
+      error
+    end
+
+  fun kind(): OpKind => OpKindOpenat
+
+  fun dir_fd(): I32 => _dir_fd
+  fun path(): FilePath => _path
+  fun flags(): I32 => _flags
+  fun mode(): U32 => _mode
+
 
 class iso OpClose
   let _fd: I32
