@@ -144,8 +144,14 @@ actor URing is AsioEventNotify
     Keeping track of the number of ops
     in order to assign a unique token to each
     """
-  let _uses_sqpoll: Bool
 
+  var _closing: Bool = false
+    """
+    State flag that, when set to `true`, denotes:
+
+    - no more ops are accepted, will fail immediately
+    - when all pending ops are handled, shut down the ring and unregister the asio event
+    """
 
   new _create(ring: NullablePointer[_Ring] val, event_fd: EventFd iso) =>
     """
@@ -159,8 +165,6 @@ actor URing is AsioEventNotify
       @io_uring_register_eventfd(_ring, _event_fd.file_descriptor())
     end
     _asio_event = @pony_asio_event_create(this, _event_fd.file_descriptor().u32(), AsioEvent.read(), 0, true)
-    let flags = try _ring.apply()?.flags else 0 end
-    _uses_sqpoll = (flags and SetupSqPoll.value()) != 0
 
   be _event_notify(event: AsioEventID, flags: U32, arg: U32) =>
     if AsioEvent.readable(flags) then
@@ -181,6 +185,11 @@ actor URing is AsioEventNotify
               end
             end
             cqe_ptr = @pony_uring_peek_cqe(_ring)
+          end
+
+          // check if we should be closing now
+          if _closing and (_pending_ops.size() == 0) then
+            close()
           end
         end
       else
@@ -214,11 +223,15 @@ actor URing is AsioEventNotify
     """
     Submit an operation to io_uring, passing a notify object/actor.
     """
-    _submit_op(consume op, notify)
+    if _closing then
+      notify.failed(consume op)
+    else
+      _submit_op(consume op, notify)
 
-    // only submit if we aren't in SQPoll Mode
-    if (not _uses_sqpoll) and submit_to_uring then
-      _submit()
+      // only submit if we aren't in SQPoll Mode
+      if submit_to_uring then
+        _submit()
+      end
     end
 
   be submit_ops(
@@ -232,15 +245,24 @@ actor URing is AsioEventNotify
 
     The passed in notify will be called for each single op.
     """
-    try
-      while ops.size() > 0 do
-        let op = ops.shift()?
-        _submit_op(consume op, notify)
+    if _closing then
+      try
+        while ops.size() > 0 do
+          let op = ops.shift()?
+          notify.failed(consume op)
+        end
       end
+    else
+      try
+        while ops.size() > 0 do
+          let op = ops.shift()?
+          _submit_op(consume op, notify)
+        end
 
-      // only submit if we aren't in SQPoll Mode
-      if (not _uses_sqpoll) and submit_to_uring then
-        _submit()
+        // only submit if we aren't in SQPoll Mode
+        if submit_to_uring then
+          _submit()
+        end
       end
     end
 
@@ -276,6 +298,10 @@ actor URing is AsioEventNotify
         // afterwards
         builder.set_data(op_token)
         _pending_ops.insert(op_token, (consume op', notify))
+      | let op_writev: OpWritev =>
+        let op' = builder.writev(consume op_writev)
+        builder.set_data(op_token)
+        _pending_ops.insert(op_token, (consume op', notify))
       end
 
     else
@@ -304,9 +330,14 @@ actor URing is AsioEventNotify
     end
 
   be dispose() =>
-    close()
+    _closing = true
 
   fun ref close() =>
+    """
+    shut down the ring immediately
+    """
+    // TODO: do not close while there are still pending ops
+    // do not allow new opts when we are about to close
     ifdef linux then
       if not _ring.is_none() then
         @pony_asio_event_unsubscribe(_asio_event)

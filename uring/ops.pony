@@ -5,14 +5,22 @@ use @ponyint_o_trunc[I32]()
 use @ponyint_o_rdonly[I32]()
 
 // TODO: make SQEFlags part of every op
-type URingOp is ((OpNop | OpReadv | OpOpenat | OpClose | OpFsync) & HasOpKind iso)
+type URingOp is ((OpNop | OpRead | OpReadv | OpWritev | OpOpenat | OpClose | OpFsync) & HasOpKind iso & HasSQEFlags iso)
 
 interface HasOpKind
   fun kind(): OpKind
 
+interface HasSQEFlags
+  fun sqe_flags(): SQEFlags
+
 class iso OpNop
-  new iso create() => None
+  let _sqe_flags: SQEFlags
+
+  new iso create(sqe_flags': SQEFlags = SQEFlags) =>
+    _sqe_flags = sqe_flags'
+
   fun kind(): OpKind => OpKindNop
+  fun sqe_flags(): SQEFlags => _sqe_flags
 
 class iso OpRead
   var _buf: Array[U8] iso
@@ -20,15 +28,19 @@ class iso OpRead
   var _nbytes: U32
   let _fd: I32
   let _offset: U64
+  let _sqe_flags: SQEFlags
 
-  new iso create(buf': Array[U8] iso, fd': I32, offset': U64) =>
+  new iso create(buf': Array[U8] iso, fd': I32, offset': U64, sqe_flags': SQEFlags = SQEFlags) =>
     _ptr = buf'.cpointer()
     _nbytes = buf'.size().u32()
     _buf = consume buf'
     _fd = fd'
     _offset = offset'
+    _sqe_flags = sqe_flags'
 
   fun kind(): OpKind => OpKindRead
+  fun sqe_flags(): SQEFlags => _sqe_flags
+
   fun fd(): I32 => _fd
   fun offset(): U64 => _offset
   fun buf(): Pointer[U8] tag => _ptr
@@ -50,9 +62,10 @@ class iso OpReadv
     """
 
   let _fd: I32
+  let _sqe_flags: SQEFlags
   var _offset: U64
 
-  new iso create(buf_sizes: Array[USize] val, fd': I32, offset': U64 = 0) =>
+  new iso create(buf_sizes: Array[USize] val, fd': I32, offset': U64 = 0, sqe_flags': SQEFlags = SQEFlags) =>
     """
     Create a new readv operation with a descriptor of the iovec sizes.
     The iovec buffers will be freshly allocated.
@@ -70,8 +83,26 @@ class iso OpReadv
     _buf = consume buf
     _fd = fd'
     _offset = offset'
+    _sqe_flags = sqe_flags'
+
+  new iso from_single_buf(buf: Array[U8] iso, fd': I32, offset': U64 = 0, sqe_flags': SQEFlags = SQEFlags) =>
+    """
+    """
+    let ptr = recover trn Array[(Pointer[U8] tag, USize)].create(1) end
+    let bufs = recover iso Array[Array[U8] iso].create(1) end
+    ptr.push((buf.cpointer(), buf.size()))
+    bufs.push(consume buf)
+
+    _ptr = consume ptr
+    _buf = consume bufs
+    _fd = fd'
+    _offset = offset'
+    _sqe_flags = sqe_flags'
+
 
   fun kind(): OpKind => OpKindReadv
+  fun sqe_flags(): SQEFlags => _sqe_flags
+
   fun iovec(): Pointer[(Pointer[U8] tag, USize)] tag => _ptr.cpointer()
   fun numvecs(): U32 => _ptr.size().u32()
   fun fd(): I32 => _fd
@@ -93,6 +124,46 @@ class iso OpReadv
     consume buf
 
 
+class iso OpWritev
+  let _iovec: Array[(Pointer[U8] tag, USize)] val
+
+  let _sqe_flags: SQEFlags
+
+  var _fd: I32
+  var _offset: U64
+
+  new iso create(
+    fd': I32,
+    seqs': ByteSeqIter,
+    offset': U64,
+    sqe_flags': SQEFlags = SQEFlags
+  ) =>
+    _fd = fd'
+    _offset = offset'
+    _sqe_flags = sqe_flags'
+
+    let ptr = recover trn Array[(Pointer[U8] tag, USize)].create(1) end
+    for seq in seqs'.values() do
+      ptr.push((seq.cpointer(), seq.size()))
+    end
+    _iovec = consume ptr
+
+  fun kind(): OpKind => OpKindWritev
+  fun sqe_flags(): SQEFlags => _sqe_flags
+  fun iovec(): Pointer[(Pointer[U8] tag, USize)] tag => _iovec.cpointer()
+  fun numvecs(): U32 => _iovec.size().u32()
+  fun offset(): U64 => _offset
+  fun ref set_offset(new_offset: U64) => _offset = new_offset
+  fun fd(): I32 => _fd
+  fun ref set_fd(new_fd: I32) => _fd = new_fd
+  fun num_bytes(): USize =>
+    var sum = USize(0)
+    for (_, size) in _iovec.values() do
+      sum = sum + size
+    end
+    sum
+
+
 primitive _AtFdcwd
   """
   AT_FDCWD - see definition in fcntl.h
@@ -109,55 +180,61 @@ class iso OpOpenat
   let _path: FilePath
   let _flags: I32
   let _mode: U32
+  let _sqe_flags: SQEFlags
 
   new iso create(
     path': FilePath,
     dir_fd': I32 = _AtFdcwd(),
     flags': I32 = @ponyint_o_rdwr() or @ponyint_o_creat() or @ponyint_o_trunc(),
-    mode': U32 = 0) ?
-  =>
+    mode': U32 = 0,
+    sqe_flags': SQEFlags = SQEFlags
+  ) ? =>
     """
     Open file for RW, create it if it does not exist, truncate it if it does.
     Manipulate the `flags'` and `mode'` arguments to get a different open behaviour.
     """
+    verify_caps(flags', path')?
     _dir_fd = dir_fd'
     _path = path'
     _flags = flags'
     _mode = mode'
-    verify_caps()?
+    _sqe_flags = sqe_flags'
 
   new iso read_only(
     path': FilePath,
     dir_fd': I32 = _AtFdcwd(),
-    flags': I32 = @ponyint_o_rdonly()) ?
-  =>
+    flags': I32 = @ponyint_o_rdonly(),
+    sqe_flags': SQEFlags = SQEFlags
+  ) ? =>
     """
     Open file for read only.
     """
+    verify_caps(flags', path')?
     _dir_fd = dir_fd'
     _path = path'
     _flags = flags'
     _mode = 0
-    verify_caps()?
+    _sqe_flags = sqe_flags'
 
-  fun verify_caps() ? =>
-    if ((_flags and @ponyint_o_creat()) != 0) and not _path.caps(FileCreate) then
+  fun tag verify_caps(flags': I32, path': FilePath) ? =>
+    if ((flags' and @ponyint_o_creat()) != 0) and not path'.caps(FileCreate) then
       error
     end
 
-    if ((_flags and @ponyint_o_trunc()) != 0) and not _path.caps(FileTruncate) then
+    if ((flags' and @ponyint_o_trunc()) != 0) and not path'.caps(FileTruncate) then
       error
     end
 
-    if ((_flags and @ponyint_o_rdwr()) != 0) and not _path.caps(FileWrite) then
+    if ((flags' and @ponyint_o_rdwr()) != 0) and not path'.caps(FileWrite) then
       error
     end
 
-    if ((_flags and @ponyint_o_rdonly()) != 0) and not _path.caps(FileRead) then
+    if ((flags' and @ponyint_o_rdonly()) != 0) and not path'.caps(FileRead) then
       error
     end
 
   fun kind(): OpKind => OpKindOpenat
+  fun sqe_flags(): SQEFlags => _sqe_flags
 
   fun dir_fd(): I32 => _dir_fd
   fun path(): FilePath => _path
@@ -166,24 +243,39 @@ class iso OpOpenat
 
 
 class iso OpClose
-  let _fd: I32
+  var _fd: I32
+  let _sqe_flags: SQEFlags
 
-  new iso create(fd': I32) =>
+  new iso create(fd': I32, sqe_flags': SQEFlags = SQEFlags) =>
     _fd = fd'
+    _sqe_flags = sqe_flags'
+
   fun kind(): OpKind => OpKindClose
+  fun sqe_flags(): SQEFlags => _sqe_flags
+
   fun fd(): I32 => _fd
+  fun ref set_fd(fd': I32) =>
+    _fd = fd'
 
 
 class iso OpFsync
-  let _fd: I32
+  var _fd: I32
   let _fdatasync: Bool
+  let _sqe_flags: SQEFlags
 
-  new iso create(fd': I32, fdatasync': Bool = false) =>
+  new iso create(fd': I32, fdatasync': Bool = false, sqe_flags': SQEFlags = SQEFlags) =>
     _fd = fd'
     _fdatasync = fdatasync'
+    _sqe_flags = sqe_flags'
+
   fun kind(): OpKind => OpKindFsync
+  fun sqe_flags(): SQEFlags => _sqe_flags
+
   fun fd(): I32 => _fd
+  fun ref set_fd(fd': I32) =>
+    _fd = fd'
   fun fdatasync(): Bool => _fdatasync
+
 
 
 type OpKind is (OpKindNop | OpKindReadv | OpKindWritev | OpKindFsync | OpKindReadFixed | OpKindWriteFixed | OpKindPollAdd | OpKindPollRemove | OpKindSyncFileRange | OpKindSendmsg |  OpKindRecvmsg | OpKindTimeout | OpKindTimeoutRemove | OpKindAccept | OpKindAsyncCancel | OpKindLinkTimeout | OpKindConnect | OpKindFallocate | OpKindOpenat | OpKindClose | OpKindFilesUpdate | OpKindStatx | OpKindRead | OpKindWrite | OpKindFadvise | OpKindMadvise | OpKindSend | OpKindRecv | OpKindOpenat2 | OpKindEpollctl | OpKindSplice | OpKindProvideBuffers | OpKindRemoveBuffers | OpKindTee | OpKindShutdown | OpKindRenameat | OpKindUnlinkat | OpKindMkdirat | OpKindSymlinkat | OpKindLinkat)

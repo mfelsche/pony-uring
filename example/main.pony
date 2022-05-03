@@ -19,8 +19,13 @@ actor Main is uring.URingNotify
           where commands' = [
             CommandSpec.leaf(
               "cat",
-              "output the given file to stdout"
-              where args' = [
+              "output the given file to stdout",
+              [
+                OptionSpec.bool("sqpoll", "Use SQPOLL"
+                  where default' = true
+                )
+              ],
+              [
                 ArgSpec.string("file", "file to print to stdout")
               ]
             )?
@@ -49,24 +54,28 @@ actor Main is uring.URingNotify
     match cmd.spec().name()
     | "cat" =>
       let path =FilePath.create(FileAuth(_env.root), cmd.arg("file").string(), FileCaps .> set(FileRead))
-      cat_cmd(path)
+      let sqpoll = cmd.option("sqpoll").bool()
+      cat_cmd(path, sqpoll)
     | "probe" =>
       probe_cmd()
     end
 
-  be cat_cmd(file_path: FilePath) =>
+  be cat_cmd(file_path: FilePath, sqpoll: Bool) =>
     ifdef linux then
       try
-        let ring = uring.InitURing(128)?
-        let config = uring.FileReaderConfig.create(
-          file_path
-          where chunk_size' = 100,
-                nr_chunks'  = 2
-        )
-        let reader = uring.FileReader.create(
-          config,
-          ring,
-          FilePrintNotify.create(_env.out, ring)
+        var setup_flags = uring.SetupFlags.create()
+        if sqpoll then
+          setup_flags = setup_flags.add(uring.SetupSqPoll)
+        end
+        let ring = uring.InitURing(128, consume setup_flags)?
+        let out_stream = uring.URingOutStream.stdout(ring)
+        let reader = uring.FileInputStream.create(
+          file_path,
+          ring
+          where
+          offset' = 0,
+          input_notify = FilePrintNotify.create(out_stream, ring),
+          error_notify = FilePrintErrorNotify.create(_env.err)
         )
       else
         _env.err.print("io_uring setup failed.")
@@ -137,7 +146,7 @@ actor Main is uring.URingNotify
       end
     end
 
-class iso FilePrintNotify is uring.FileReaderNotify
+class iso FilePrintNotify is InputNotify
   let _out: OutStream
   let _ring: uring.URing
 
@@ -145,18 +154,19 @@ class iso FilePrintNotify is uring.FileReaderNotify
     _out = out
     _ring = ring
 
-  fun ref on_data(data: Array[U8] iso, offset: U64): uring.ControlFlow =>
+  fun ref apply(data: Array[U8] iso) =>
     let s = recover val String.from_iso_array(consume data) end
     _out.write(s)
-    uring.Continue
 
-  fun ref on_eof() =>
-    None
+  fun ref dispose() =>
+    _ring.dispose()
+
+class iso FilePrintErrorNotify is uring.ErrorNotify
+  let _err: OutStream
+
+  new iso create(err: OutStream) =>
+    _err = err
 
   fun ref on_err(errno: I32) =>
-    _out.print("ERROR: " + errno.string())
-    _ring.dispose()
-
-  fun ref on_close() =>
-    _ring.dispose()
+    _err.print("ERROR: " + errno.string())
 

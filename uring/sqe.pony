@@ -2,16 +2,17 @@ use @pony_uring_sqe_set_data[None](sqe: Pointer[_SQE] ref, data: U64) if linux
 use @pony_uring_sqe_set_flags[None](sqe: Pointer[_SQE] ref, flags: U8) if linux
 use @pony_uring_prep_nop[None](sqe: Pointer[_SQE] ref) if linux
 use @pony_uring_prep_read[None](sqe: Pointer[_SQE] ref, fd: I32, buf: Pointer[U8] tag, nbytes: U32, offset: U64) if linux
-use @pony_uring_prep_readv[None](sqe: Pointer[_SQE] ref, fd: I32, iovec: Pointer[(Pointer[U8] tag, USize)] tag, nr_vec: U32, offset: U64) if linux
+use @pony_uring_prep_readv[None](sqe: Pointer[_SQE] ref, fd: I32, iovecs: Pointer[(Pointer[U8] tag, USize)] tag, nr_vecs: U32, offset: U64) if linux
 use @pony_uring_prep_openat[None](sqe: Pointer[_SQE] ref, fd: I32, path: Pointer[U8] tag, flags: I32, mode: U32)
 use @pony_uring_prep_close[None](sqe: Pointer[_SQE] ref, fd: I32)
 use @pony_uring_prep_fsync[None](sqe: Pointer[_SQE] ref, fd: I32, flags: U32)
+use @pony_uring_prep_writev[None](sqe: Pointer[_SQE] ref, fd: I32, iovecs: Pointer[(Pointer[U8] tag, USize)] tag, nr_vecs: U32, offset: U64) if linux
 
 
 use "collections"
 
 type SQEFlag is (SQEFixedFile | SQEDrain | SQELink | SQEHardLink | SQEAlwaysAsync | SQEBufferSelect)
-type SQEFlags is Flags[SQEFlag, U8]
+type SQEFlags is Flags[SQEFlag, U8] val
 
 primitive SQEFixedFile
   """
@@ -118,11 +119,9 @@ class ref SQEBuilder
   exposed methods to fill a SQE
   """
   var _inner: Pointer[_SQE]
-  var _flags: SQEFlags
 
   new ref _create(inner: Pointer[_SQE] ref) =>
     _inner = inner
-    _flags = SQEFlags
 
   fun ref set_data(data: U64) =>
     """
@@ -135,57 +134,10 @@ class ref SQEBuilder
       compile_error "uring only supported on linux"
     end
 
-  fun ref drain() =>
-    """
-    Only execute this SQE after all previous once are done,
-    and only start the next SQE after this one, when this SEQ's operation is completed.
-
-    See [SQEDrain](uring-SQEDrain.md)
-    """
-    _flags.set(SQEDrain)
-
-  fun ref always_async() =>
-    """
-    Don't try to run this SQE as non-blocking first, simply run it as async.
-
-    Useful if this op is known to block (e.g. file reads/writes).
-
-    See [SQEAlwaysAsync](uring-SQEAlwaysAsync.md)
-    """
-    _flags.set(SQEAlwaysAsync)
-
-  fun ref link() =>
-    """
-    Link this SQE entry to the following one.
-
-    See [SQELink](uring-SQELink.md) for more information on the semantics of linking.
-    """
-    _flags.set(SQELink)
-
-  fun ref hard_link() =>
-    """
-    Hard-link this SQE entry to the following one.
-
-    See [SQEHardLink](uring-SQEHardLink.md) for more information
-    on the semantics of hard linking.
-
-    This implies [SQELink](uring-SQELink.md).
-    """
-    _flags.set(SQELink)
-
-  fun ref set_flags(flags: SQEFlags) =>
-    """
-    Set flags for this SQE.
-    """
-    _flags = flags
-
-  fun ref clear_flags() =>
-    _flags.clear()
-
   fun ref nop(op: OpNop iso): OpNop iso^ =>
     ifdef linux then
       @pony_uring_prep_nop(_inner)
-      @pony_uring_sqe_set_flags(_inner, _flags.value())
+      @pony_uring_sqe_set_flags(_inner, op.sqe_flags().value())
       consume op
     else
       compile_error "uring only supported on linux"
@@ -194,7 +146,7 @@ class ref SQEBuilder
   fun ref read(op: OpRead iso): OpRead iso^ =>
     ifdef linux then
       @pony_uring_prep_read(_inner, op.fd(), op.buf(), op.nbytes(), op.offset())
-      @pony_uring_sqe_set_flags(_inner, _flags.value())
+      @pony_uring_sqe_set_flags(_inner, op.sqe_flags().value())
       consume op
     else
       compile_error "uring only supported on linux"
@@ -203,7 +155,7 @@ class ref SQEBuilder
   fun ref readv(op: OpReadv iso): OpReadv iso^ =>
     ifdef linux then
       @pony_uring_prep_readv(_inner, op.fd(), op.iovec(), op.numvecs(), op.offset())
-      @pony_uring_sqe_set_flags(_inner, _flags.value())
+      @pony_uring_sqe_set_flags(_inner, op.sqe_flags().value())
       consume op
     else
       compile_error "uring only supported on linux"
@@ -213,7 +165,7 @@ class ref SQEBuilder
     ifdef linux then
       let flags: U32 = if op.fdatasync() then 1 else 0 end
       @pony_uring_prep_fsync(_inner, op.fd(), flags)
-      @pony_uring_sqe_set_flags(_inner, _flags.value())
+      @pony_uring_sqe_set_flags(_inner, op.sqe_flags().value())
       consume op
     else
       compile_error "uring only supported on linux"
@@ -222,7 +174,7 @@ class ref SQEBuilder
   fun ref openat(op: OpOpenat iso): OpOpenat iso^ =>
     ifdef linux then
       @pony_uring_prep_openat(_inner, op.dir_fd(), op.path().path.cstring(), op.flags(), op.mode())
-      @pony_uring_sqe_set_flags(_inner, _flags.value())
+      @pony_uring_sqe_set_flags(_inner, op.sqe_flags().value())
       consume op
     else
       compile_error "uring only supported on linux"
@@ -232,7 +184,16 @@ class ref SQEBuilder
   fun ref close(op: OpClose iso): OpClose iso^ =>
     ifdef linux then
       @pony_uring_prep_close(_inner, op.fd())
-      @pony_uring_sqe_set_flags(_inner, _flags.value())
+      @pony_uring_sqe_set_flags(_inner, op.sqe_flags().value())
+      consume op
+    else
+      compile_error "uring only supported on linux"
+    end
+
+  fun ref writev(op: OpWritev iso): OpWritev iso^ =>
+    ifdef linux then
+      @pony_uring_prep_writev(_inner, op.fd(), op.iovec(), op.numvecs(), op.offset())
+      @pony_uring_sqe_set_flags(_inner, op.sqe_flags().value())
       consume op
     else
       compile_error "uring only supported on linux"
