@@ -293,18 +293,20 @@ actor URingOutStream is (URingNotify & OutStream)
     """
     Print some bytes and insert a newline afterwards.
     """
-    if data.size() == 0 then
-      _writev(["\n"])
+    let byteseqiter: Array[ByteSeq] val = if data.size() == 0 then
+      ["\n"]
     else
-      _writev([data; "\n"])
+      [data; "\n"]
     end
+    _writev(byteseqiter)
 
   be write(data: ByteSeq) =>
     """
     Print some bytes without inserting a newline afterwards.
     """
     if data.size() > 0 then
-      _writev([data])
+      let byteseqiter: Array[ByteSeq] val = [data]
+      _writev(byteseqiter)
     end
 
   be printv(data: ByteSeqIter) =>
