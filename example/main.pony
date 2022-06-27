@@ -134,6 +134,8 @@ actor Main is uring.URingNotify
       | let ring: uring.URing =>
         ring.dispose()
       end
+    else
+      Debug("Unknown Operation")
     end
 
   be failed(op: uring.URingOp) =>
@@ -144,6 +146,8 @@ actor Main is uring.URingNotify
       | let ring: uring.URing =>
         ring.dispose()
       end
+    else
+      Debug("Something failed")
     end
 
 class iso FilePrintNotify is InputNotify
