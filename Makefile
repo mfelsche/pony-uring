@@ -1,6 +1,6 @@
 ROOT_DIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
-LIBURING_VERSION := liburing-2.1
+LIBURING_VERSION := liburing-2.2
 LIBURING_DIR := $(ROOT_DIR)/liburing-$(LIBURING_VERSION)
 LIBURING_INCLUDE_DIR := "$(ROOT_DIR)/liburing-$(LIBURING_VERSION)/src/include"
 LIBURING_LIB := $(ROOT_DIR)/liburing.a

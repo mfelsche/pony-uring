@@ -278,7 +278,7 @@ class iso OpFsync
 
 
 
-type OpKind is (OpKindNop | OpKindReadv | OpKindWritev | OpKindFsync | OpKindReadFixed | OpKindWriteFixed | OpKindPollAdd | OpKindPollRemove | OpKindSyncFileRange | OpKindSendmsg |  OpKindRecvmsg | OpKindTimeout | OpKindTimeoutRemove | OpKindAccept | OpKindAsyncCancel | OpKindLinkTimeout | OpKindConnect | OpKindFallocate | OpKindOpenat | OpKindClose | OpKindFilesUpdate | OpKindStatx | OpKindRead | OpKindWrite | OpKindFadvise | OpKindMadvise | OpKindSend | OpKindRecv | OpKindOpenat2 | OpKindEpollctl | OpKindSplice | OpKindProvideBuffers | OpKindRemoveBuffers | OpKindTee | OpKindShutdown | OpKindRenameat | OpKindUnlinkat | OpKindMkdirat | OpKindSymlinkat | OpKindLinkat)
+type OpKind is (OpKindNop | OpKindReadv | OpKindWritev | OpKindFsync | OpKindReadFixed | OpKindWriteFixed | OpKindPollAdd | OpKindPollRemove | OpKindSyncFileRange | OpKindSendmsg |  OpKindRecvmsg | OpKindTimeout | OpKindTimeoutRemove | OpKindAccept | OpKindAsyncCancel | OpKindLinkTimeout | OpKindConnect | OpKindFallocate | OpKindOpenat | OpKindClose | OpKindFilesUpdate | OpKindStatx | OpKindRead | OpKindWrite | OpKindFadvise | OpKindMadvise | OpKindSend | OpKindRecv | OpKindOpenat2 | OpKindEpollctl | OpKindSplice | OpKindProvideBuffers | OpKindRemoveBuffers | OpKindTee | OpKindShutdown | OpKindRenameat | OpKindUnlinkat | OpKindMkdirat | OpKindSymlinkat | OpKindLinkat | OpKindMsgRing | OpKindFSetXAttr | OpKindSetXAttr | OpKindFGetXAttr | OpKindGetXAttr | OpKindSocket | OpKindUringCmd)
 
 primitive OpKinds
   fun apply(): Array[OpKind] val^ =>
@@ -326,6 +326,13 @@ primitive OpKinds
       OpKindMkdirat
       OpKindSymlinkat
       OpKindLinkat
+      OpKindMsgRing
+      OpKindFSetXAttr
+      OpKindSetXAttr
+      OpKindFGetXAttr
+      OpKindGetXAttr
+      OpKindSocket
+      OpKindUringCmd
     ]
 
 primitive OpKindNop
@@ -607,5 +614,54 @@ primitive OpKindLinkat
   """
   fun value(): I32 => 39
   fun string(): String => "IORING_OP_LINKAT"
+
+primitive OpKindMsgRing
+  """
+  IORING_OP_MSG_RING
+  """
+  fun value(): I32 => 40
+  fun string(): String => "IORING_OP_MSG_RING"
+
+primitive OpKindFSetXAttr
+  """
+  IORING_OP_FSETXATTR
+  """
+  fun value(): I32 => 41
+  fun string(): String => "IORING_OP_FSETXATTR"
+
+primitive OpKindSetXAttr
+  """
+  IORING_OP_SETXATTR
+  """
+  fun value(): I32 => 42
+  fun string(): String => "IORING_OP_SETXATTR"
+
+primitive OpKindFGetXAttr
+  """
+  IORING_OP_FGETXATTR
+  """
+  fun value(): I32 => 43
+  fun string(): String => "IORING_OP_FGETXATTR"
+
+primitive OpKindGetXAttr
+  """
+  IORING_OP_GETXATTR
+  """
+  fun value(): I32 => 43
+  fun string(): String => "IORING_OP_GETXATTR"
+
+primitive OpKindSocket
+  """
+  IORING_OP_SOCKET
+  """
+  fun value(): I32 => 44
+  fun string(): String => "IORING_OP_SOCKET"
+
+primitive OpKindUringCmd
+  """
+  IORING_OP_URING_CMD
+  """
+  fun value(): I32 => 45
+  fun string(): String => "IORING_OP_URING_CMD"
 
 // IORING_OP_LAST left out intentionally

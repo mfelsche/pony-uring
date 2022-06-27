@@ -66,7 +66,47 @@ primitive SetupRDisabled
   """
   fun value(): U32 => 1 << 6
 
-type SetupFlags is Flags[(SetupIoPoll|SetupSqPoll|SetupSqAff|SetupCqSize|SetupClamp|SetupAttachWq|SetupRDisabled), U32]
+primitive SetupSubmitAll
+  """
+  IORING_SETUP_SUBMIT_ALL
+
+  Continue submit on error.
+  """
+  fun value(): U32 => 1 << 7
+
+primitive SetupCoopTaskRun
+  """
+  IORING_SETUP_COOP_TASKRUN
+
+  Cooperative task running.
+  """
+  fun value(): U32 => 1 << 8
+
+primitive SetupTaskRunFlag
+  """
+  IORING_SETUP_TASKRUN_FLAG
+
+  sets IORING_SQ_TASKRUN in the sq ring to signal a kernel transition is necessary
+  """
+  fun value(): U32 => 1 << 9
+
+primitive SetupSQE128
+  """
+  IORING_SETUP_SQE128
+
+  SQEs are 128 Bytes
+  """
+  fun value(): U32 => 1 << 10
+
+primitive SetupCQE32
+  """
+  IORING_SETUP_CQE32
+
+  CQEs are 32 byte
+  """
+  fun value(): U32 => 1 << 11
+
+type SetupFlags is Flags[(SetupIoPoll|SetupSqPoll|SetupSqAff|SetupCqSize|SetupClamp|SetupAttachWq|SetupRDisabled|SetupSubmitAll|SetupCoopTaskRun|SetupTaskRunFlag|SetupSQE128|SetupCQE32), U32]
   """
   io_uring_setup() flags to be passed to `Ring.create()`.
   """

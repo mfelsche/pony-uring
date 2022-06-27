@@ -2,5 +2,5 @@
 /example/lock.json
 /liburing.a
 /liburing_pony.a
-/liburing-liburing-2.1/
+/liburing-liburing-2.*/
 /liburing-pony/*.ol

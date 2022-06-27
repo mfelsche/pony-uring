@@ -331,6 +331,9 @@ actor URing is AsioEventNotify
 
   be dispose() =>
     _closing = true
+    if _pending_ops.size() == 0 then
+      close()
+    end
 
   fun ref close() =>
     """
