@@ -1,0 +1,221 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+  <meta name="author" content="Matthias Wahl">
+
+  <title>Bringing io_uring to Ponylang</title>
+
+  <link rel="stylesheet" href="dist/reset.css">
+  <link rel="stylesheet" href="dist/reveal.css">
+  <link rel="stylesheet" href="dist/theme/robot-lung.css" id="theme">
+
+  <!-- Theme used for syntax highlighted code -->
+  <link rel="stylesheet" href="plugin/highlight/github.css" id="highlight-theme">
+</head>
+
+<body>
+  <!-- border -->
+  <div class="line top"></div>
+  <div class="line bottom"></div>
+  <div class="line left"></div>
+  <div class="line right"></div>
+
+
+
+  <div class="reveal">
+    <!-- global stuff visible on every page-->
+
+    <!-- slides content-->
+    <div class="slides">
+      <section>
+
+        <h1>Bringing io_uring to Ponylang</h1>
+        <img src="images/pony-uring-title.jpg" width="600px" />
+        <p>Matthias Wahl</p>
+
+      </section>
+
+      <section>
+
+        <h2>Agenda</h2>
+
+        <ol>
+          <li>io_uring</li>
+          <li>The Ponylang Runtime</li>
+          <li>The Ponylang async IO subsystem</li>
+          <li>Incompatibilities</li>
+          <li>pony-uring</li>
+        </ol>
+      </section>
+
+      <section>
+        <h1>io_uring</h1>
+        <section>
+          <p class="fragment">New Linux interface for doing syscalls</p>
+          <p class="fragment">and get notified upon their completion</p>
+        </section>
+        <section>
+          <img src="images/io-uring.png" />
+        </section>
+      </section>
+      <section>
+        <h1>The Ponylang Runtime</h1>
+      </section>
+      <section>
+        <img src="images/pony-runtime.png" />
+      </section>
+      <section>
+
+        <h1>The Ponylang Runtime</h1>
+        <section>
+          <p>&nbsp;</p>
+          <p>&nbsp;</p>
+          <pre><code data-trim data-noescape class="language-pony">
+              actor Actor
+                let name: String
+
+                new create(name': String, colleages: Array[Actor] val) =>
+                  name = name'
+                  for a in colleagues do
+                    a.say_line(name + " is way better than me.")
+                  end
+
+                be say_line(line: String) =>
+                  Debug("[" + name + "] " + line)
+
+              actor Main
+                new create(env: Env) =>
+                  let monroe = Actor.create("Marylin", [])
+                  let reeves = Actor.create("Keanu", [monroe])
+            </code></pre>
+        </section>
+        <section>
+          <h2>Design goals</h2>
+          <ul>
+            <li class="fragment">High performance actor system</li>
+            <li class="fragment">Memory-safety and data-race freedom</li>
+          </ul>
+        </section>
+      </section>
+      <section>
+        <h1>The Ponylang async IO subsystem</h1>
+      </section>
+      <section>
+        <img src="images/pony-asio.png" />
+      </section>
+      <section>
+        <h1>Incompatibilities</h1>
+        <ul>
+          <li class="fragment">epoll is thread-safe, <code>io_uring</code> is not</li>
+          <li class="fragment">async IO subsystem is limited to read/write readiness notifications</li>
+        </ul>
+      </section>
+      <section>
+        <h1>pony-uring</h1>
+        <section>
+          <ul>
+            <li><b>Initial goal:</b> Add additional asio backend using io_uring</li>
+            <li class="fragment"><b>Dead end</b></li>
+          </ul>
+        </section>
+        <section>
+          <h2>Alternative</h2>
+          <p class="fragment">Pony Userland io_uring driver</p>
+        </section>
+        <section>
+          <img src="images/pony-uring.png" />
+        </section>
+        <section>
+          <ul>
+            <li>
+              <span class="fragment" style="font-weight: bold">Thread safety:</span>
+              <span class="fragment">Encapsulate ring access inside one actor</span>
+            </li>
+            <li>
+              <span class="fragment" style="font-weight: bold">Limited asio API:</span>
+              <span class="fragment">Encapsulate every possible io_uring operation in a class</span>
+            </li>
+            <li class="fragment">Callback into actor with completion item</li>
+            <li class="fragment">Upholds Pony safety guarantees across FFI boundary</li>
+          </ul>
+        </section>
+        <section>
+          <p>&nbsp;</p>
+          <p>&nbsp;</p>
+          <pre><code data-trim data-noescape class="language-pony">
+              actor Main is URingNotify
+                let _env: Env
+                let _ring: URing
+
+                new create(env: Env) =>
+                  _env = env
+                  _ring =
+                    InitUring(
+                      where entries = 128,
+                      flags = SetupFlags.create().add(SetupSqPoll)
+                    )?
+                  let buf = recover iso Array[U8].create(4096) end
+
+                  // read from stdin
+                  let readv_op = OpReadv.from_single_buf(buf where fd' = 0, offset' = 0)
+                  _ring.submit_op(read_op, this)
+            </code></pre>
+        </section>
+        <section>
+          <p>&nbsp;</p>
+          <p>&nbsp;</p>
+          <pre><code data-trim data-noescape class="language-pony">
+              be op_completed(op: UringOp iso, result I32) =>
+                match op
+                | let readv_op: OpReadv iso =>
+                  let buf = readv_op.extract_buf()(0)?
+                  buf.trim_in_place(0, result.usize()) // ignore possible failures here
+                  // write to stdout (not via uring)
+                  _env.out.print(recover val consume buf end)
+                  _ring.close() // shutdown the ring after all ops completed
+                end
+
+              be failed(op: URingOp) =>
+                env.err.print("URing op failed")
+            </code></pre>
+        </section>
+        <section>
+          <h2>Result</h2>
+          <p>
+            <a href="https://github.com/mfelsche/pony-uring">https://github.com/mfelsche/pony-uring</a>
+            <p>&nbsp;</p>
+            <p class="fragment">Focusses on File IO</p>
+            <p class="fragment">Still very much incomplete</p>
+            
+          </p>
+        </section>
+      </section>
+      <section>
+          <h1>Thank You</h1>
+      </section>
+    </div>
+  </div>
+
+  <script src="dist/reveal.js"></script>
+  <script src="plugin/notes/notes.js"></script>
+  <script src="plugin/markdown/markdown.js"></script>
+  <script src="plugin/highlight/highlight.js"></script>
+  <script>
+    // More info about initialization & config:
+    // - https://revealjs.com/initialization/
+    // - https://revealjs.com/config/
+    Reveal.initialize({
+      hash: true,
+      margin: 0.2,
+
+      // Learn about plugins: https://revealjs.com/plugins/
+      plugins: [RevealMarkdown, RevealHighlight, RevealNotes]
+    });
+  </script>
+</body>
+
+</html>
