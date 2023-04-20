@@ -1,5 +1,7 @@
 # io_uring bindings for ponylang
 
+[**Slides**](https://mfelsche.github.io/pony-uring)
+
 This library exposes [liburing](https://github.com/axboe/liburing) bindings to Pony programmers.
 
 ## Build
