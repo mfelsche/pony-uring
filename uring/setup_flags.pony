@@ -106,7 +106,23 @@ primitive SetupCQE32
   """
   fun value(): U32 => 1 << 11
 
-type SetupFlags is Flags[(SetupIoPoll|SetupSqPoll|SetupSqAff|SetupCqSize|SetupClamp|SetupAttachWq|SetupRDisabled|SetupSubmitAll|SetupCoopTaskRun|SetupTaskRunFlag|SetupSQE128|SetupCQE32), U32]
+primitive SetupSingleIssuer
+  """
+  IORING_SETUP_SINGLE_ISSUER
+  
+  only one task is allowed to submit requests
+  """
+  fun value(): U32 => 1 << 12
+
+primitive SetupDeferTaskRun
+  """
+  IORING_SETUP_DEFER_TASKRUN
+
+  Defer running task work to get events.
+  """
+  fun value(): U32 => 1 << 13
+
+type SetupFlags is Flags[(SetupIoPoll|SetupSqPoll|SetupSqAff|SetupCqSize|SetupClamp|SetupAttachWq|SetupRDisabled|SetupSubmitAll|SetupCoopTaskRun|SetupTaskRunFlag|SetupSQE128|SetupCQE32|SetupSingleIssuer|SetupDeferTaskRun), U32]
   """
   io_uring_setup() flags to be passed to `Ring.create()`.
   """

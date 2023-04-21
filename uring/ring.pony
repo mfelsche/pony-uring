@@ -46,10 +46,11 @@ struct _SubmissionQueue
   let ring_sz: USize = 0
   let ring_ptr: Pointer[None] = ring_ptr.create()
 
+  let ring_mask: U32 = 0
+  let ring_entries: U32 = 0
+
   let _pad1: U32 = 0
   let _pad2: U32 = 0
-  let _pad3: U32 = 0
-  let _pad4: U32 = 0
 
 struct _CompletionQueue
   let khead: Pointer[U32] = khead.create()
@@ -63,10 +64,11 @@ struct _CompletionQueue
   let ring_sz: USize = 0
   let ring_ptx: Pointer[None] = ring_ptx.create()
 
+  let ring_mask: U32 = 0
+  let ring_entries: U32 = 0
+
   let _pad1: U32 = 0
   let _pad2: U32 = 0
-  let _pad3: U32 = 0
-  let _pad4: U32 = 0
 
 struct _Ring
   embed sq: _SubmissionQueue = _SubmissionQueue.create()
@@ -76,9 +78,13 @@ struct _Ring
   let ring_fd: I32 = 0
 
   let features: U32 = 0
-  let _pad1: U32 = 0
-  let _pad2: U32 = 0
-  let _pad3: U32 = 0
+  let enter_ring_fd: I32 = 0
+  let int_flags: U8 = 0
+
+  let _pad1: U8 = 0
+  let _pad2: U8 = 0
+  let _pad3: U8 = 0
+  let _pad4: U32 = 0
 
   new create() => None
 

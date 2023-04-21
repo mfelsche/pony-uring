@@ -11,7 +11,7 @@ use @pony_uring_prep_writev[None](sqe: Pointer[_SQE] ref, fd: I32, iovecs: Point
 
 use "collections"
 
-type SQEFlag is (SQEFixedFile | SQEDrain | SQELink | SQEHardLink | SQEAlwaysAsync | SQEBufferSelect)
+type SQEFlag is (SQEFixedFile | SQEDrain | SQELink | SQEHardLink | SQEAlwaysAsync | SQEBufferSelect | SQECQESkipSuccess)
 type SQEFlags is Flags[SQEFlag, U8] val
 
 primitive SQEFixedFile
@@ -110,6 +110,13 @@ primitive SQEBufferSelect
   """
   fun value(): U8 => 1 << 5
 
+primitive SQECQESkipSuccess
+  """
+  ### IOSQE_CQE_SKIP_SUCCESS
+
+  don't post CQE if request succeeded
+  """
+  fun value(): U8 => 1 << 6
 
 primitive _SQE
   """SQE dummy primitive"""

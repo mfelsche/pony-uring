@@ -75,13 +75,15 @@ IORING_OP_UNLINKAT            ✅
 IORING_OP_MKDIRAT             ✅
 IORING_OP_SYMLINKAT           ✅
 IORING_OP_LINKAT              ✅
-IORING_OP_MS_RING             ✅
+IORING_OP_MSG_RING            ✅
 IORING_OP_FSETXATTR           ✅
 IORING_OP_SETXATTR            ✅
 IORING_OP_FGETXATTR           ✅
 IORING_OP_GETXATTR            ✅
 IORING_OP_SOCKET              ✅
 IORING_OP_URING_CMD           ✅
+IORING_OP_SEND_ZC             ✅
+IORING_OP_SENDMSG_ZC          ✅
 Nop completed with 0
 ```
 

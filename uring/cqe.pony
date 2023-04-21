@@ -16,3 +16,5 @@ struct CQE
     """
   let flags: U32 = 0
 
+  // __u64 big_cqe[] - 16 bytes of padding intentionally left out
+
