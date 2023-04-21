@@ -278,7 +278,7 @@ class iso OpFsync
 
 
 
-type OpKind is (OpKindNop | OpKindReadv | OpKindWritev | OpKindFsync | OpKindReadFixed | OpKindWriteFixed | OpKindPollAdd | OpKindPollRemove | OpKindSyncFileRange | OpKindSendmsg |  OpKindRecvmsg | OpKindTimeout | OpKindTimeoutRemove | OpKindAccept | OpKindAsyncCancel | OpKindLinkTimeout | OpKindConnect | OpKindFallocate | OpKindOpenat | OpKindClose | OpKindFilesUpdate | OpKindStatx | OpKindRead | OpKindWrite | OpKindFadvise | OpKindMadvise | OpKindSend | OpKindRecv | OpKindOpenat2 | OpKindEpollctl | OpKindSplice | OpKindProvideBuffers | OpKindRemoveBuffers | OpKindTee | OpKindShutdown | OpKindRenameat | OpKindUnlinkat | OpKindMkdirat | OpKindSymlinkat | OpKindLinkat | OpKindMsgRing | OpKindFSetXAttr | OpKindSetXAttr | OpKindFGetXAttr | OpKindGetXAttr | OpKindSocket | OpKindUringCmd)
+type OpKind is (OpKindNop | OpKindReadv | OpKindWritev | OpKindFsync | OpKindReadFixed | OpKindWriteFixed | OpKindPollAdd | OpKindPollRemove | OpKindSyncFileRange | OpKindSendmsg |  OpKindRecvmsg | OpKindTimeout | OpKindTimeoutRemove | OpKindAccept | OpKindAsyncCancel | OpKindLinkTimeout | OpKindConnect | OpKindFallocate | OpKindOpenat | OpKindClose | OpKindFilesUpdate | OpKindStatx | OpKindRead | OpKindWrite | OpKindFadvise | OpKindMadvise | OpKindSend | OpKindRecv | OpKindOpenat2 | OpKindEpollctl | OpKindSplice | OpKindProvideBuffers | OpKindRemoveBuffers | OpKindTee | OpKindShutdown | OpKindRenameat | OpKindUnlinkat | OpKindMkdirat | OpKindSymlinkat | OpKindLinkat | OpKindMsgRing | OpKindFSetXAttr | OpKindSetXAttr | OpKindFGetXAttr | OpKindGetXAttr | OpKindSocket | OpKindUringCmd | OpKindSendZC | OpKindSendmsgZC)
 
 primitive OpKinds
   fun apply(): Array[OpKind] val^ =>
@@ -333,6 +333,8 @@ primitive OpKinds
       OpKindGetXAttr
       OpKindSocket
       OpKindUringCmd
+      OpKindSendZC
+      OpKindSendmsgZC
     ]
 
 primitive OpKindNop
@@ -663,5 +665,20 @@ primitive OpKindUringCmd
   """
   fun value(): I32 => 45
   fun string(): String => "IORING_OP_URING_CMD"
+
+primitive OpKindSendZC
+  """
+  IORING_OP_SEND_ZC
+  """
+  fun value(): I32 => 46
+  fun string(): String => "IORING_OP_SEND_ZC"
+
+primitive OpKindSendmsgZC
+  """
+  IORING_OP_SENDMSG_ZC
+  """
+  fun value(): I32 => 47
+  fun string(): String => "IORING_OP_SENDMSG_ZC"
+
 
 // IORING_OP_LAST left out intentionally
